@@ -10,5 +10,5 @@ if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 
-add_executable(treetest ${SOURCE_FILES})
-target_link_options(treetest PRIVATE "-municode")
+add_executable(tree ${SOURCE_FILES})
+target_link_options(tree PRIVATE "-municode")
