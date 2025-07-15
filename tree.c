@@ -23,7 +23,7 @@ enum PROGRAM_CODES
 typedef struct node
 {
 	const wchar_t* file_name;
-	bool 		   is_dir;
+	bool           is_dir;
 	struct node*   next;
 } node;
 
@@ -49,7 +49,7 @@ node* init_node(const wchar_t* file_name, bool is_dir)
 void push_node(node** head_node, node* this_node)
 {
 	this_node->next = *head_node;
-	*head_node = this_node;
+	*head_node      = this_node;
 }
 
 
@@ -72,6 +72,7 @@ int walk(const wchar_t* directory_path, const wchar_t* prefix)
 		return FUNCTION_FAILURE;
 	}
 
+
 	WIN32_FIND_DATAW directory_data;
 	HANDLE directory_handle = FindFirstFileW(search_directory_path, &directory_data);
 	if (directory_handle == INVALID_HANDLE_VALUE)
@@ -79,6 +80,7 @@ int walk(const wchar_t* directory_path, const wchar_t* prefix)
 		wprintf(L"handle failure");
 		return HANDLE_FAILURE;
 	}
+
 
 	node*  head_node      = NULL;
 	size_t directory_size = 0;
