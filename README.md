@@ -1,12 +1,24 @@
-super simple program (but do not use, simply for educational purposes only)
+# A relatively simple import of GNU's tree to Windows
+A project that I procrastinated on HARD while trying to learn about file i/o, Win32 API, recursion, linked lists and C. 
+Should work PROPERLY, unlike the first release of this program.
 
-default path is '.' (current directory of which the exe would be in) but can take a cli argument of a path so it starts its search there (gotta run the cli with cmd cd'd into the directory the .exe is in though)
+# Design
+Design choices included in this program was how I'd like my tree program to look like, so..
 
+- Sorted output
+- Prints out the names of restricted directories, but does NOT access them
+- Prints basically out literally anything, so long as it can get its name
 
-acknowledgement to @kddnewton for his posix implementation in c "https://github.com/kddnewton/tree" since i based my implementation on his version
+# Project specifications
 
-known bugs:
-no checks implemented to check whether the program has read-access for directories
+- Uses a FILO linked list, but funnily enough the O(n) sorting algorithm basically converts it to a FIFO linked list
+- Outputs an error (well, more like a log) log at the end of execution in C:\tree_output if --log / -L is one of the CLI arguments
+- Really nothing special, it's a tree program
 
-todo:
-implement output sorting
+# How to run
+Either download the source files and run cmake or download the executable directly.
+
+Takes an OPTIONAL --directory / -D CLI argument if you want to print a tree of a specific directory.
+Without any arguments, the program will print a tree of the directory that it's in.
+
+Takes an OPTIONAL --log / -L CLI argument if you want to print any errors that the program runs into, since any errors except path not found for the entry point directory will be ignored during the execution of the program.

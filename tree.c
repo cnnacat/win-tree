@@ -1,184 +1,342 @@
-#include <apiset.h>
-#include <fileapi.h>
-#include <handleapi.h>
-#include <minwinbase.h>
-#include <minwindef.h>
-#include <stdio.h>
-#include <stdbool.h>
-#include <string.h>
-#include <wchar.h>
-#include <windows.h>
-#include <winnt.h>
-#include <fcntl.h>
-#include <io.h>
+#include "unicode.h"
 
+#include "ll/ll.h"
+#include "tree.h"
+#include "log/log.h"
+#include "libs/getopt.h"
+
+// I literally never use this, at least effectively
 enum PROGRAM_CODES
 {
 	MALLOC_FAILURE   = 67,
 	FUNCTION_FAILURE = 69,
 	HANDLE_FAILURE   = 420,
-	FUNCTION_SUCCESS = 0
+	FUNCTION_SUCCESS = 0,
+	ACCESS_DENIED    = 1337
 };
 
-typedef struct node
+
+void hang()
 {
-	const wchar_t* file_name;
-	bool           is_dir;
-	struct node*   next;
-} node;
-
-
-// filo linked list
-node* init_node(const wchar_t* file_name, bool is_dir)
-{
-	node* new_node = (node*)malloc(sizeof(node));
-	if (!new_node)
-	{
-		wprintf(L"malloc fail in init_node");
-		return NULL;
-	}
-
-	new_node->file_name      = _wcsdup(file_name);
-	new_node->is_dir         = is_dir;
-	new_node->next           = NULL;
-
-	return new_node;
+	wprintf(L"\nPress ENTER to quit: ");
+	getwchar();
 }
 
 
-void push_node(node** head_node, node* this_node)
+void get_cli_args(
+	int       argc, 
+	wchar_t*  argv[], 
+	wchar_t** directory_path, 
+	int*      log_flag)
 {
-	this_node->next = *head_node;
-	*head_node      = this_node;
-}
 
+	int get_opt_return_code;
+	int option_index;
 
-void pop_node(node** head_node)
-{
-	node* temp_node = (*head_node)->next;
-	free((void*)(*head_node)->file_name);
-	free(*head_node);
-
-	*head_node = temp_node;
-}
-
-
-int walk(const wchar_t* directory_path, const wchar_t* prefix)
-{
-	wchar_t search_directory_path[MAX_PATH];
-	if (_snwprintf_s(search_directory_path, MAX_PATH, _TRUNCATE, L"%s\\*", directory_path) == -1)
+	while (true)
 	{
-		wprintf(L"_snwprintf_s() failed in walk()");
-		return FUNCTION_FAILURE;
+		static struct option long_option[] =
+		{
+			{L"log", no_argument, 0, L'L'},
+			{L"directory", optional_argument, 0, L'D'},
+			{0, 0, 0, 0}
+		};
+
+		get_opt_return_code = getopt_long_w(argc, argv, L"D::", long_option, &option_index);
+		if (get_opt_return_code == -1)
+			break;
+
+		switch(get_opt_return_code){
+		
+		case L'D':
+			// Standardize the format of the C:
+			if (wcscmp(L"C:\\", optarg) == 0)
+				*directory_path = L"C:";
+			else
+				*directory_path = _wcsdup(optarg);
+
+			break;
+
+		case L'L':
+			*log_flag = true;
+			break;
+
+		case L'?':
+			break;
+
+		default:
+			abort();
+		}
 	}
 
+	// Set default path if not given
+	if (*directory_path == NULL)
+		*directory_path = L".";
+}
 
-	WIN32_FIND_DATAW directory_data;
-	HANDLE directory_handle = FindFirstFileW(search_directory_path, &directory_data);
-	if (directory_handle == INVALID_HANDLE_VALUE)
-	{
-		wprintf(L"handle failure");
-		return HANDLE_FAILURE;
-	}
+// "Directory Path" refers to the literal path of a directory
+// "Search Path" or anything that sounds similar refers to %s\\*, where %s is the
+// directory path, because otherwise FindFirstFile refuses to index into it.
 
+void traverse(
+	wchar_t*         directory_path,
+	WIN32_FIND_DATAW file_data,
+	HANDLE           file_handle, 
+	wchar_t*         prefix, 
+	log_node**       log_head)
+{
 
-	node*  head_node      = NULL;
-	size_t directory_size = 0;
+	// Since the check on whether the program has access to a directory was prior to this
+	// function call, assume read-only priveleges for the directory given in the parameter.
+
+	node* head_node = NULL;
 	do
 	{
-		wchar_t* this_file_name     = directory_data.cFileName;
-		bool     is_this_file_a_dir = false;
+		wchar_t* file_name = file_data.cFileName;
+		bool     dir       = false;
 
-		if (directory_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
-			is_this_file_a_dir = true;
+		// Skip the directories which are reparse points and hidden directories 
+		bool is_directory = file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+		bool is_reparse_point = file_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT;
+		bool is_hidden = (file_data.dwFileAttributes & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN)) == (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN);
 
-		if ((wcscmp(L".", this_file_name) != 0) && (wcscmp(L"..", this_file_name) != 0))
+		if (is_directory && !is_reparse_point && !is_hidden)
+			dir = true;
+
+		if ((wcscmp(L".", file_name) != 0) && (wcscmp(L"..", file_name) != 0))
 		{
-			node* new_node = init_node(this_file_name, is_this_file_a_dir);
-			if(!new_node)
+			node* new_file_node = init_node(file_name, dir);
+			if (!new_file_node)
 			{
-				wprintf(L"malloc failed for the creation of a new node");
-				return MALLOC_FAILURE;
+				wprintf(L"Failed to allocate memory for a node for file: %s", file_name);
+				return;
 			}
-			push_node(&head_node, new_node);
-			directory_size += 1;
+
+			if (!head_node
+				|| wcscmp(new_file_node->file_name, head_node->file_name) < 0)
+				push_node(&head_node, new_file_node);
+
+			else if (wcscmp(new_file_node->file_name, head_node->file_name) > 0)
+			{
+				node* current_node;
+				for (
+					current_node = head_node; 
+					current_node->next && wcscmp(new_file_node->file_name, current_node->file_name) > 0; 
+					current_node = current_node->next
+					);
+
+				new_file_node->next = current_node->next;
+				current_node->next  = new_file_node;
+			}
 		}
 
-	} while (FindNextFileW(directory_handle, &directory_data));
+	} while (FindNextFileW(file_handle, &file_data));
 
-
-	CloseHandle(directory_handle);
 	if (!head_node)
-		return 0;
+		return;
 
+	// I can probably break the following code after this comment into
+	// its own function. 
 
-	wchar_t* tree_branch     = NULL;
-	wchar_t* indent_guide    = NULL;
-	wchar_t  next_prefix    [MAX_PATH];
-	wchar_t  new_search_path[MAX_PATH];
-	for (int i = 0; i < directory_size; i++)
+	wchar_t* tree_branch  = NULL;
+	wchar_t* indent_guide = NULL;
+	wchar_t next_prefix       [MAX_PATH];
+	wchar_t new_directory_path[MAX_PATH];
+	wchar_t new_search_path   [MAX_PATH];
+
+	while (head_node)
 	{
-		if (i == directory_size-1)
+		if (head_node->next == NULL)
 		{
 			tree_branch  = L"└── ";
-			indent_guide = L"    ";
+			indent_guide = L"    ";	  
 		}
 		else
 		{
 			tree_branch  = L"├── ";
 			indent_guide = L"│   ";
 		}
-		wprintf(L"%s%s%s\n", prefix, tree_branch, head_node->file_name);
-
 
 		if (head_node->is_dir)
 		{
-			if (_snwprintf_s(new_search_path, MAX_PATH, _TRUNCATE, L"%s\\%s", directory_path, head_node->file_name) == -1)
+			// Create the search path for FindFirstFile purposes
+			if (_snwprintf_s(
+				new_search_path, 
+				MAX_PATH, 
+				_TRUNCATE, 
+				L"%s\\%s\\*", 
+				directory_path, 
+				head_node->file_name) == -1)	
 			{
-				wprintf(L"_snwprintf_s() failed before initiating a recursive function call");
-				return FUNCTION_FAILURE;
+				wprintf(L"Truncation occured while trying to create the search path for the directory: %s", head_node->file_name);
+				return;
 			}
 
-			if (_snwprintf_s(next_prefix, MAX_PATH, _TRUNCATE, L"%s%s", prefix, indent_guide) == -1)
+			// Create the directory path so futher function calls can create their search path
+			if (_snwprintf_s(
+				new_directory_path, 
+				MAX_PATH, 
+				_TRUNCATE, 
+				L"%s\\%s", 
+				directory_path, 
+				head_node->file_name) == -1)
 			{
-				wprintf(L"next_prefix truncated prior to a recursive function call");
-				return FUNCTION_FAILURE;
+				wprintf(L"Truncation occured while trying to create the directory path for the directory: %s", head_node->file_name);
+				return;
 			}
 
-			walk(new_search_path, next_prefix);
+			// Create the whatever the fuck is a good name to call this; The indent? Spacing? For tree printing purposes
+			if (_snwprintf_s(
+				next_prefix, 
+				MAX_PATH,
+				_TRUNCATE, 
+				L"%s%s", 
+				prefix, 
+				indent_guide) == -1)
+			{
+				wprintf(L"Truncation occured while trying to create the next indent guide for directory: %s", head_node->file_name);
+				return;
+			}
+
+
+			WIN32_FIND_DATAW new_file_data;
+			
+			HANDLE new_file_handle = FindFirstFileW(new_search_path, &new_file_data);
+			if (new_file_handle == INVALID_HANDLE_VALUE)
+			{
+				DWORD error = GetLastError();
+				if (error == ERROR_ACCESS_DENIED)
+				{
+					wchar_t message_buffer[4096] = L"Access Denied: ";
+					StringCchCatW(
+						message_buffer, 
+						4096, 
+						new_directory_path);
+
+					log_node* new_log_node = init_log_node(message_buffer);
+					push_log_node(log_head, new_log_node);
+					continue;
+				}
+				else if (error == ERROR_PATH_NOT_FOUND)
+				{
+					wchar_t message_buffer[4096] = L"Path not found: ";
+					StringCchCatW(
+						message_buffer, 
+						4096, 
+						new_directory_path);
+
+					log_node* new_log_node = init_log_node(message_buffer);
+					push_log_node(log_head, new_log_node);
+					continue; 
+				}
+			}
+
+			wprintf(
+				L"%s%s%s\n", 
+				prefix, 
+				tree_branch, 
+				head_node->file_name);
+
+			traverse(
+				new_directory_path, 
+				new_file_data, 
+				new_file_handle, 
+				next_prefix, 
+				log_head);
 		}
+		else
+			wprintf(
+				L"%s%s%s\n", 
+				prefix, 
+				tree_branch, 
+				head_node->file_name);
 
-		pop_node(&head_node);
-
+		pop_node(&head_node);		
 	}
 
-	return FUNCTION_SUCCESS;
+	return;
 }
 
 
-int wmain(int argc, wchar_t* argv[])
+int wmain(
+	int      argc, 
+	wchar_t* argv[])
 {
-	// set windows 10 cmd output to unicode-16
-	_setmode(_fileno(stdout), _O_U16TEXT);;
-	wchar_t* directory_name = NULL;
-	if (argc > 1)
-	{
-		// standardize the formatting of how paths are recieved by walk()
-		if (wcscmp(argv[1], L"C:\\"))
-			directory_name = L"C:";
-		else
-			directory_name = argv[1];
-	}
-	else
-		directory_name = L".";
 
-	int return_code = walk(directory_name, L"");
-	if (return_code == HANDLE_FAILURE)
+	// set cmd output to unicode
+	_setmode(_fileno(stdout), _O_U16TEXT);
+
+	int      log_flag       = false;
+	wchar_t* directory_path = NULL;
+
+	get_cli_args(
+		argc, 
+		argv, 
+		&directory_path, 
+		&log_flag);
+
+
+	WIN32_FIND_DATAW origin_file_data;
+	wchar_t          origin_search_directory_path[MAX_PATH];
+
+	if (_snwprintf_s(
+		origin_search_directory_path, 
+		MAX_PATH, 
+		_TRUNCATE, 
+		L"%s\\*", 
+		directory_path) == -1)
 	{
-		wprintf(L"Either the WinAPI failed, or your input contained a path that was not valid.");
-		wprintf(L"Make sure to copy and paste the path from File Explorer, don't write it out.\n");
+		wprintf(L"Truncation occured in wmain for origin_search_directory_path");
+		exit(FUNCTION_FAILURE);
 	}
 
-	getwchar();
+	HANDLE origin_search_handle = FindFirstFileW(origin_search_directory_path, &origin_file_data);
+	if (origin_search_handle == INVALID_HANDLE_VALUE)
+	{
+		DWORD error = GetLastError();
+		if (error == ERROR_ACCESS_DENIED)
+			wprintf(L"Access denied to %s\n", directory_path);
+
+		if (error == ERROR_PATH_NOT_FOUND)
+			wprintf(L"Path not found to %s\n", directory_path);
+
+		hang();
+		exit(FUNCTION_FAILURE);
+	}
+	
+	wprintf(L"Searching path: '%s'\n", directory_path);
+
+	log_node* log_head = NULL;
+	// give traverse the path, the prefix, and the error node's head
+	traverse(
+		directory_path, 
+		origin_file_data, 
+		origin_search_handle, 
+		L"",
+		&log_head);
+
+
+	if (log_flag)
+	{	
+		wprintf(L"\nLog output in C:\\tree_output \n\n");
+		
+		if (!log_head)
+		{
+			wchar_t message[4096] = L"No errors while searching path: ";
+			StringCchCatW(message, 
+				4096, 
+				directory_path);
+
+			log_node* no_err = init_log_node(message);
+			push_log_node(&log_head, no_err);
+		}
+
+		// this frees all malloc-ed memory in the error's linked list
+		output_log_file(&log_head);
+	}
+
+
+	FindClose(origin_search_handle);
+	hang();	
 	return 0;
 }
