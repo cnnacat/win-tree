@@ -1,9 +1,9 @@
-#include "unicode.h"
+#include "../unicode.h"
 
-#include "ll/ll.h"
+#include "../linked_list/linked_list.h"
 #include "tree.h"
-#include "log/log.h"
-#include "libs/getopt.h"
+#include "../log/log.h"
+#include "../libs/getopt.h"
 
 // I literally never use this, at least effectively
 enum PROGRAM_CODES

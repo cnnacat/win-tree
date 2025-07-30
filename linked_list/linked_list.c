@@ -1,4 +1,4 @@
-#include "ll.h"
+#include "linked_list.h"
 
 
 node* init_node(const wchar_t* file_name, bool is_dir)
