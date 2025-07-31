@@ -5,6 +5,7 @@
 #include "../log/log.h"
 #include "../libs/getopt.h"
 
+
 // I literally never use this, at least effectively
 enum PROGRAM_CODES
 {
@@ -42,20 +43,46 @@ void get_cli_args(
 			{0, 0, 0, 0}
 		};
 
-		get_opt_return_code = getopt_long_w(argc, argv, L"D::", long_option, &option_index);
+		get_opt_return_code = getopt_long_w(
+			argc, 
+			argv, 
+			L"D::", 
+			long_option, 
+			&option_index);
+
 		if (get_opt_return_code == -1)
 			break;
 
 		switch(get_opt_return_code){
 		
 		case L'D':
-			// Standardize the format of the C:
-			if (wcscmp(L"C:\\", optarg) == 0)
-				*directory_path = L"C:";
-			else
-				*directory_path = _wcsdup(optarg);
+			{
+				// For portability, as most runtimes treat argv differently
+				wchar_t* arg_copy = _wcsdup(optarg);
+				if (!arg_copy)
+				{
+					wprintf(L"_wcsdup(optarg) failed");
+					return;
+				}
 
-			break;
+				size_t length;
+				HRESULT result = StringCchLengthW(arg_copy, MAX_PATH, &length);
+				if (FAILED(result))
+				{
+					wprintf(L"Failed to confirm format of input directory");
+					return;
+				}
+
+				if (length > 0
+					&& arg_copy[length - 1] == L'\\')
+				{
+					arg_copy[length - 1] = L'\0';
+				}
+
+				*directory_path = arg_copy;
+
+				break;	
+			}
 
 		case L'L':
 			*log_flag = true;
@@ -71,7 +98,9 @@ void get_cli_args(
 
 	// Set default path if not given
 	if (*directory_path == NULL)
-		*directory_path = L".";
+		// This is honestly stupid but it's the simplest way to ensure that anything
+		// coming out of get_opt is dynamically allocated. Otherwise I run into free() crashes.
+		*directory_path = _wcsdup(L".");
 }
 
 // "Directory Path" refers to the literal path of a directory
@@ -96,14 +125,17 @@ void traverse(
 		bool     dir       = false;
 
 		// Skip the directories which are reparse points and hidden directories 
-		bool is_directory = file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
+		bool is_directory     = file_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 		bool is_reparse_point = file_data.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT;
-		bool is_hidden = (file_data.dwFileAttributes & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN)) == (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN);
+		bool is_hidden        = (file_data.dwFileAttributes & (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN)) == (FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_HIDDEN);
 
-		if (is_directory && !is_reparse_point && !is_hidden)
+		if (is_directory 
+			&& !is_reparse_point 
+			&& !is_hidden)
 			dir = true;
 
-		if ((wcscmp(L".", file_name) != 0) && (wcscmp(L"..", file_name) != 0))
+		if (wcscmp(L".", file_name) != 0
+			&& wcscmp(L"..", file_name) != 0)
 		{
 			node* new_file_node = init_node(file_name, dir);
 			if (!new_file_node)
@@ -140,9 +172,9 @@ void traverse(
 
 	wchar_t* tree_branch  = NULL;
 	wchar_t* indent_guide = NULL;
-	wchar_t next_prefix       [MAX_PATH];
-	wchar_t new_directory_path[MAX_PATH];
-	wchar_t new_search_path   [MAX_PATH];
+	wchar_t  next_prefix       [MAX_PATH];
+	wchar_t  new_directory_path[MAX_PATH];
+	wchar_t  new_search_path   [MAX_PATH];
 
 	while (head_node)
 	{
@@ -323,7 +355,8 @@ int wmain(
 		if (!log_head)
 		{
 			wchar_t message[4096] = L"No errors while searching path: ";
-			StringCchCatW(message, 
+			StringCchCatW(
+				message, 
 				4096, 
 				directory_path);
 
@@ -337,6 +370,7 @@ int wmain(
 
 
 	FindClose(origin_search_handle);
+	free(directory_path);
 	hang();	
 	return 0;
 }

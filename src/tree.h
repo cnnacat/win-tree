@@ -8,3 +8,4 @@
 #include <strsafe.h>
 #include <winerror.h>
 #include <winnt.h>
+#include <string.h>
