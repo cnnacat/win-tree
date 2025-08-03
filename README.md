@@ -23,7 +23,7 @@ Design choices included in this program was how I'd like my tree program to look
 # How to run
 Either download the source files and run cmake or download the executable directly.
 
-NOTE!!!: Due to the licensing of [getopt-win](https://github.com/ludvikjerabek/getopt-win?tab=LGPL-3.0-1-ov-file) by ludvikjerabek, this program cannot run without it's DLL. If you want to print the tree of another directory, you either have to use the --directory / -D CLI argument (preferred), or move BOTH the DLL and the tree executable into the target directory.
+NOTE!!!: Due to the licensing of [getopt-win](https://github.com/ludvikjerabek/getopt-win?tab=LGPL-3.0-1-ov-file) by ludvikjerabek, this program must dynamically link itself to getopt-win at runtime and thus CANNOT run without the DLL. If you want to print the tree of another directory, you either have to use the --directory / -D CLI argument (preferred), or move BOTH the DLL and the tree executable into the target directory.
 
 Takes an OPTIONAL --directory / -D CLI argument if you want to print a tree of a specific directory.
 Without any arguments, the program will print a tree of the directory that it's in.
