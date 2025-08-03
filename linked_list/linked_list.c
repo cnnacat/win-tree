@@ -33,3 +33,19 @@ void pop_node(node** head_node)
 
 	*head_node = temp_node;
 }
+
+
+void flush_linked_list(node* head_node)
+{
+	if (!head_node)
+		return;
+
+	while (head_node)
+	{
+		node* temp_node = head_node->next;
+		free((void*)head_node->file_name);
+		free(head_node);
+
+		head_node = temp_node;
+	}
+}
