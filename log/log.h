@@ -15,8 +15,8 @@
 
 typedef struct log_node 
 {
-	wchar_t*           message;
-	struct log_node* next;
+    wchar_t*           message;
+    struct log_node* next;
 } log_node;
 
 log_node*   init_log_node   (const wchar_t* message);

@@ -6,9 +6,9 @@
 
 typedef struct node
 {
-	const wchar_t* file_name;
-	bool           is_dir;
-	struct node*   next;
+    const wchar_t* file_name;
+    bool           is_dir;
+    struct node*   next;
 } node;
 
 
